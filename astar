@@ -1,0 +1,178 @@
+local function cloneTable(a)
+    local b = { }
+    for k, v in pairs(a) do
+        b[k] = v
+    end
+
+    return b
+end
+
+local function str(pt)
+    return string.format('%d-%d-%d', pt.x, pt.y, pt.z)
+end
+
+local function compPos(a, b)
+    return a.x == b.x and a.y == b.y and a.z == b.z
+end
+
+local function lookup(list, pt)
+    for i, v in pairs(list) do
+        if compPos(v, pt) then
+            return i
+        end
+    end
+
+    return -1
+end
+
+local function distTo(a, b)
+    local va = vector.new(a.x, a.y, a.z)
+    local vb = vector.new(b.x, b.y, b.z)
+
+    return va:sub(vb):length()
+end
+
+local function scoreFn(a, b)
+    local score = distTo(a, b) * 10000
+    if a.cost then
+        score = score + a.cost
+    end
+
+    return score
+end
+
+local function mapCost(map, pt)
+    local cost = 5000000
+
+    if map[pt.z] and map[pt.z][pt.y] and map[pt.z][pt.y][pt.x] then
+        cost = map[pt.z][pt.y][pt.x]
+    end
+
+    return cost
+end
+
+local function getNeighbors(map, point)
+    local nbs = { }
+    local p = { x = point.x - 1, y = point.y, z = point.z }
+    p.cost = mapCost(map, p)
+    table.insert(nbs, p)
+
+    p = { x = point.x + 1, y = point.y, z = point.z }
+    p.cost = mapCost(map, p)
+    table.insert(nbs, p)
+
+    p = { x = point.x, y = point.y - 1, z = point.z }
+    p.cost = mapCost(map, p)
+    table.insert(nbs, p)
+
+    p = { x = point.x, y = point.y + 1, z = point.z }
+    p.cost = mapCost(map, p)
+    table.insert(nbs, p)
+
+    p = { x = point.x, y = point.y, z = point.z - 1 }
+    p.cost = mapCost(map, p)
+    table.insert(nbs, p)
+
+    p = { x = point.x, y = point.y, z = point.z + 1 }
+    p.cost = mapCost(map, p)
+    table.insert(nbs, p)
+
+    return nbs
+end
+
+local function reconstructPath(cameFrom, currentNode)
+    if cameFrom[str(currentNode)] then
+        local p = reconstructPath(cameFrom, cameFrom[str(currentNode)])
+        table.insert(p, currentNode)
+        return p
+    else
+        return { currentNode }
+    end
+end
+
+
+function calculate(map, from, to, ignore)
+    local goal = {
+        x = to.x,
+        y = to.y,
+        z = to.z
+    }
+
+    local start = {
+        x = from.x,
+        y = from.y,
+        z = from.z
+    }
+
+    local gScore = { }
+    local fScore = { }
+
+    gScore[str(start)] = 0
+    fScore[str(start)] = gScore[str(start)] + scoreFn(start, goal)
+
+    local closedSet = cloneTable(ignore)
+    local openSet = { start }
+
+    local cameFrom = { }
+
+    local totalChecks = 0
+    while #openSet > 0 do
+        totalChecks = totalChecks + 1
+        local current = nil
+        local currentIdx = -1
+
+        for i = 1, #openSet do
+            if current == nil or fScore[str(openSet[i])] < fScore[str(current)] then
+                current = openSet[i]
+                currentIdx = i
+            end
+        end
+
+        if compPos(current, goal) then
+            local finish = reconstructPath(cameFrom, cameFrom[str(goal)])
+            table.insert(finish, goal)
+            table.remove(finish, 1)
+            print('Finished after ' .. totalChecks .. ' checks')
+            return finish
+        end
+
+        table.remove(openSet, currentIdx)
+        table.insert(closedSet, current)
+
+        local neighbors = getNeighbors(map, current)
+        for neighborIdx = 1, #neighbors do repeat
+            local neighbor = neighbors[neighborIdx]
+
+            if not gScore[str(current)] then
+                gScore[str(current)] = 0
+            end
+
+            local tempGScore = gScore[str(current)] + distTo(current, neighbor)
+
+            local closedSetIdx = lookup(closedSet, neighbor)
+            if closedSetIdx ~= -1 then
+                if gScore[str(neighbor)] and tempGScore < gScore[str(neighbor)] then
+                    table.remove(closedSet, closedSetIdx)
+                else
+                    break
+                end
+            end
+
+            local openSetIdx = lookup(openSet, neighbor)
+            if openSetIdx == -1 or tempGScore < gScore[str(neighbor)] then
+                if openSetIdx == -1 then
+                    table.insert(openSet, neighbor)
+                end
+
+                cameFrom[str(neighbor)] = current
+
+                gScore[str(neighbor)] = tempGScore
+                fScore[str(neighbor)] = gScore[str(neighbor)] + scoreFn(neighbor, goal)
+            end
+        until true end
+    end
+
+print('Failed after ' .. totalChecks .. ' checks')
+    return nil
+end
+

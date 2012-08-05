@@ -1,0 +1,120 @@
+os.loadAPI('botbase')
+
+local miner = { }
+
+function miner:new()
+    local o = { }
+    setmetatable(o, self)
+    self.__index = self
+
+    self.state = 'start'
+    self.cmd = 'dig'
+    self.miningPoint = nil
+    self.lastRow = 'right'
+    self.moved = 0
+
+    return o
+end
+
+function new()
+    return miner:new()
+end
+
+function miner:setBot(bot)
+    self.bot = bot
+end
+
+local function getValidDir(oldDir) 
+    local d = nil
+
+    repeat
+        d = botbase.directions[math.random(#botbase.directions)]
+    until d ~= 'up' and d ~= 'down' and d ~= oldDir
+
+    return d
+end
+
+function miner:work()
+    if self.state == 'start' then
+        self.bot:log('Finding something to mine')
+        -- find something to mine by choosing a dir every 10 tries
+        if not self.miningDir or self.moved > 10 then
+            self.miningDir = getValidDir(self.miningDir)
+            self.moved = 0
+        end
+
+        -- move into direction until find something to mine
+        self.bot:setFacing(self.miningDir)
+
+        if not turtle.detect() then
+            if self.bot:move(self.miningDir) then
+                self.bot.pos = botbase.updatePos(self.bot.pos, self.miningDir)
+                self.moved = self.moved + 1
+            end
+        else
+            self.state = 'mining'
+            self.moved = 0
+            self.bot:log('Found something to mine')
+        end
+    else
+        -- do some mining
+        self.bot:setFacing(self.miningDir)
+        
+        if turtle.detect() or turtle.detectDown() then
+            local slot = self.bot:getFreeSlot(self.miningDir)
+            if slot ~= -1 then
+                -- just select slot 1 because
+                -- it will autofill the available ones
+                turtle.select(1)
+                turtle.dig()
+
+                -- down too for 2 high tunnels
+                turtle.digDown()
+            else
+                self.state = 'start'
+                self.bot:log('Returning to base')
+                self.bot:setState(botbase.STATES.TO_BASE)
+                return
+            end
+        end
+
+        if self.bot:move(self.miningDir) then
+            self.bot.pos = botbase.updatePos(self.bot.pos, self.miningDir)
+            self.moved = self.moved + 1
+        end
+
+        if self.moved > 10 then
+            -- rotate to next row
+            if self.lastRow == 'right' then
+                turtle.turnLeft()
+                self.miningDir = botbase.facingChanges.left[self.miningDir]
+            else
+                turtle.turnRight()
+                self.miningDir = botbase.facingChanges.right[self.miningDir]
+            end
+
+            turtle.dig()
+            if turtle.forward() then
+                self.bot.pos = botbase.updatePos(self.bot.pos, self.miningDir)
+            end
+
+            if self.lastRow == 'right' then
+                turtle.turnLeft()
+                self.miningDir = botbase.facingChanges.left[self.miningDir]
+            else
+                turtle.turnRight()
+                self.miningDir = botbase.facingChanges.right[self.miningDir]
+            end
+
+            self.moved = 0
+            self.bot.facing = self.miningDir
+
+            if self.lastRow == 'right' then
+                self.lastRow = 'left'
+            else
+                self.lastRow = 'right'
+            end
+        end
+    end
+
+end

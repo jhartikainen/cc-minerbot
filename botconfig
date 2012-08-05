@@ -1,0 +1,13 @@
+masterId = 2
+facing = 'south'
+startX = 1131
+startY = 136
+startZ = 71
+safeHeight = 60
+mineX = 1139
+mineY = 139
+mineZ = 59
+dropX = 1131
+dropY = 140
+dropZ = 80
+dropFacing = 'west'

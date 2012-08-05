@@ -1,0 +1,13 @@
+if turtle then
+  fs.delete('bot')
+  fs.delete('botconfig')
+  fs.delete('astar')
+  fs.delete('basicminer')
+  fs.delete('botbase')
+
+  fs.copy('disk/bot', 'bot')
+  fs.copy('disk/botconfig', 'botconfig')
+  fs.copy('disk/astar', 'astar')
+  fs.copy('disk/basicminer', 'basicminer')
+  fs.copy('disk/botbase', 'botbase')
+end

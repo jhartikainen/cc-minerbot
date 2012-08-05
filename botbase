@@ -1,0 +1,326 @@
+os.loadAPI('astar')
+
+directions = { 'north', 'east', 'south', 'west', 'up', 'down' }
+
+STATES = {
+    -- Moving to mining point
+    TO_MINE = 'toMine',
+
+    -- Moving to base (to unload or such)
+    TO_BASE = 'toBase',
+
+    -- Mining now
+    MINING = 'mining'
+}
+
+bot = { }
+
+function bot:new(config, miner)
+    local o = { }
+    setmetatable(o, self)
+    self.__index = self
+
+    self.running = true
+    self.target = nil
+    self.state = STATES.TO_MINE
+
+    self.miner = miner
+    self.miner:setBot(o)
+
+    self.route = nil
+    self.ignore = { }
+
+    self.pos = {
+        x = config.startX,
+        y = config.startY,
+        z = config.startZ
+    }
+
+    self.mine = {
+        x = config.mineX,
+        y = config.mineY,
+        z = config.mineZ
+    }
+
+    self.dropPoint = {
+        x = config.dropX,
+        y = config.dropY,
+        z = config.dropZ
+    }
+
+    self.dropFacing = config.dropFacing
+
+    self.facing = config.facing
+    self.safeHeight = config.safeHeight
+
+    self.masterId = config.masterId
+
+    self.map = { }
+
+
+    return o
+
+end
+
+function bot:updateMap(map, pos, val)
+    if not self.map[pos.z] then
+        self.map[pos.z] = { }
+    end
+
+    if not self.map[pos.z][pos.y] then
+        self.map[pos.z][pos.y] = { }
+    end
+
+    self.map[pos.z][pos.y][pos.x] = val
+end
+
+function bot:log(msg)
+    print(msg)
+    rednet.send(self.masterId, msg)
+end
+
+function bot:isSafeZone(p)
+    return p.z > self.safeHeight
+end
+
+function updatePos(pos, dir)
+    local np = {
+        x = pos.x,
+        y = pos.y,
+        z = pos.z
+    }
+
+    if dir == 'north' then
+        np.y = np.y - 1
+    elseif dir == 'south' then
+        np.y = np.y + 1
+    elseif dir == 'east' then
+        np.x = np.x + 1
+    elseif dir == 'west' then
+        np.x = np.x - 1
+    elseif dir == 'down' then
+        np.z = np.z - 1
+    elseif dir == 'up' then
+        np.z = np.z + 1
+    end
+
+    return np
+end
+
+function bot:getFreeSlot(dir)
+    local fn = 'compare'
+    if dir == 'up' then
+        fn = 'compareUp'
+    elseif dir == 'down' then
+        fn = 'compareDown'
+    end
+    
+    local freeSlot = -1
+    for i = 1, 9 do
+        turtle.select(i)
+        if turtle.getItemSpace(i) == 64 then
+            freeSlot = i
+        end
+
+        if turtle[fn]() and turtle.getItemSpace(i) > 0 then
+            return i
+        end
+    end
+
+    return freeSlot
+end
+
+function getDirection(a, b)
+    if a.x < b.x then
+        return 'east'
+    elseif a.x > b.x then
+        return 'west'
+    end
+
+    if a.y < b.y then
+        return 'south'
+    elseif a.y > b.y then
+        return 'north'
+    end
+
+    if a.z < b.z then
+        return 'up'
+    elseif a.z > b.z then
+        return 'down'
+    end
+
+    return nil
+end
+
+facingChanges = {
+    left = {
+        north = 'west',
+        west = 'south',
+        south = 'east',
+        east = 'north'
+    },
+
+    right = {
+        north = 'east',
+        east = 'south',
+        south = 'west',
+        west = 'north'
+    }
+}
+
+function bot:setFacing(dir)
+    while self.facing ~= dir do
+        turtle.turnLeft()
+        self.facing = facingChanges.left[self.facing]
+    end
+end
+
+function bot:move(dir)
+    local newPos = updatePos(self.pos, dir)
+    if dir == 'up' then
+        if not turtle.up() then
+            if self:isSafeZone(newPos) then
+                self:updateMap(map, newPos, 9999999)
+                return false
+            else
+                turtle.digUp()
+
+                if turtle.up() then
+                    self:updateMap(map, newPos, 1)
+                    return true
+                end
+
+                return false
+            end
+        else
+            self:updateMap(map, newPos, 1)
+            return true
+        end
+    end
+
+    if dir == 'down' then
+        if not turtle.down() then
+            if self:isSafeZone(newPos) then
+                self:updateMap(map, newPos, 9999999)
+                return false
+            else
+                turtle.digDown()
+
+                if turtle.down() then
+                    self:updateMap(map, newPos, 1)
+                    return true
+                end
+
+                return false
+            end
+        else
+            self:updateMap(map, newPos, 1)
+            return true
+        end
+    end
+
+    self:setFacing(dir)
+    if not turtle.forward() then
+        if self:isSafeZone(newPos) then
+            self:updateMap(map, newPos, 9999)
+            return false
+        else
+            turtle.dig()
+
+            if turtle.forward() then
+                self:updateMap(map, newPos, 1)
+                return true
+            end
+
+            return false
+        end
+    else
+        self:updateMap(map, newPos, 1)
+        return true
+    end
+end
+
+function dist(a, b)
+    local va = vector.new(a.x, a.y, a.z)
+    local vb = vector.new(b.x, b.y, b.z)
+
+    return va:sub(vb):length()
+end
+
+function compPos(a, b)
+    return a.x == b.x and a.y == b.y and a.z == b.z
+end
+
+
+function bot:moveToTarget()
+    if compPos(self.pos, self.target) then
+        self:log('Found target')
+        return true
+    end
+
+    -- if we have an active route, try navigating it
+    if self.route and #self.route > 0 then
+        local tn = self.route[1]
+        --print(string.format('%d-%d-%d', tn.x, tn.y, tn.z))
+        --sleep(0.5)
+        local dir = getDirection(self.pos, tn)
+        if self:move(dir) then
+            self.pos = updatePos(self.pos, dir)
+            table.remove(self.route, 1)
+        else
+            self:log('Recalculate route')
+            table.insert(self.ignore, tn)
+            self.route = nil
+        end
+    else
+        -- if we can't navigate the active route (undiggable obstacle)
+        -- try recalculating the route
+        self:log('Finding route')
+        self.route = astar.calculate(self.map, self.pos, self.target, self.ignore)
+
+        -- if no active route, calculate a route to target
+        -- undiggable blocks should be avoided
+        -- should prefer going via known routes vs digging
+        -- unknown blocks better than undiggable? better than diggable?
+        if self.route == nil then
+            self:log('No route found!')
+            self.running = false
+            return false
+        end
+    end
+end
+
+function bot:doMining()
+    self.miner:work()
+end
+
+function bot:setState(state)
+    self.state = state
+end
+
+function bot:work()
+    if self.state == STATES.TO_MINE then
+        self.target = self.mine
+        if self:moveToTarget() then
+            self.ignore = { }
+            self.state = STATES.MINING
+            self:log('Arrived at mining site')
+        end
+    elseif self.state == STATES.TO_BASE then
+        self.target = self.dropPoint
+        if self:moveToTarget() then
+            self:setFacing(self.dropFacing)
+            self:log('Unloading...')
+            for i = 1, 9 do
+                turtle.select(i)
+                turtle.drop()
+            end
+
+            self:log('Moving back to mining site')
+            self.state = STATES.TO_MINE
+        end
+    elseif self.state == STATES.MINING then
+        -- try digging I guess
+        self:doMining()
+    end
+end

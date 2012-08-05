@@ -1,0 +1,12 @@
+os.loadAPI('botconfig')
+os.loadAPI('basicminer')
+os.loadAPI('botbase')
+
+local config = botconfig
+local miner = basicminer.new()
+local bot = botbase.bot:new(config, miner)
+
+rednet.open('right')
+while bot.running do
+   bot:work() 
+end
